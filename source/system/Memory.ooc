@@ -22,6 +22,7 @@ memmove: extern func (Pointer, Pointer, SizeT)
 memcpy: extern func (Pointer, Pointer, SizeT)
 memfree: extern (free) func (Pointer)
 alloca: extern func (SizeT) -> Pointer
+posix_memalign: extern func (Pointer*, SizeT, SizeT) -> Int
 
 // Used for executing any/all cleanup (free~all) functions before program exit
 GlobalCleanup: class {
