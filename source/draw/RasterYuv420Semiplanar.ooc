@@ -23,6 +23,8 @@ import io/FileReader
 import io/Reader
 import io/FileWriter
 import Canvas, RasterCanvas
+use concurrent //optimize
+use system //optimize
 
 RasterYuv420SemiplanarCanvas: class extends RasterCanvas {
 	target ::= this _target as RasterYuv420Semiplanar
@@ -62,11 +64,48 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		result: This
 		if (this size == size)
 			result = this copy()
+		else version (experimentOptimized) {
+			result = This new(size, size x + (size x isOdd ? 1 : 0))
+			this resizeIntoOptimized(result)
+		}
 		else {
 			result = This new(size, size x + (size x isOdd ? 1 : 0))
 			this resizeInto(result)
 		}
 		result
+	}
+	resizeIntoOptimized: func (target: This) {
+		thisYBuffer := this y buffer pointer //buffer: ByteBuffer
+		targetYBuffer := target y buffer pointer //buffer: ByteBuffer
+		_srcRow: Int*
+		posix_memalign(_srcRow& as Void**, 16, 4 * Int size)
+		srcRowSse := _srcRow as M128*
+		for (row in 0 .. target size y) {
+			srcRowSse[row] = _mm_mullo_epi16(_mm_set_epi32(this size y, this size y, this size y, this size y)), _mm_set_epi16(row, row+1, row+2, row+3))
+			//srcRow := (this size y * row) / target size y
+			thisStride := srcRow * this y stride
+			targetStride := row * target y stride
+			for (column in 0 .. target size x) {
+				srcColumn := (this size x * column) / target size x
+				targetYBuffer[column + targetStride] = thisYBuffer[srcColumn + thisStride]
+			}
+			row += 4
+		}
+		targetSizeHalf := target size / 2
+		thisSizeHalf := this size / 2
+		thisUvBuffer := this uv buffer pointer as ColorUv*
+		targetUvBuffer := target uv buffer pointer as ColorUv*
+		if (target size y isOdd)
+			targetSizeHalf = IntVector2D new(targetSizeHalf x, targetSizeHalf y + 1)
+		for (row in 0 .. targetSizeHalf y) {
+			srcRow := (thisSizeHalf y * row) / targetSizeHalf y
+			thisStride := srcRow * this uv stride / 2
+			targetStride := row * target uv stride / 2
+			for (column in 0 .. targetSizeHalf x) {
+				srcColumn := (thisSizeHalf x * column) / targetSizeHalf x
+				targetUvBuffer[column + targetStride] = thisUvBuffer[srcColumn + thisStride]
+			}
+		}
 	}
 	resizeInto: func (target: This) {
 		thisYBuffer := this y buffer pointer
