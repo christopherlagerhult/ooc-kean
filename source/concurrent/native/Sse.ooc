@@ -6,7 +6,6 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
-version (sse) {
 include xmmintrin
 include emmintrin
 
@@ -26,6 +25,7 @@ _mm_or_ps: extern func (M128, M128) -> M128
 //int
 M128i: cover from __m128i
 _mm_set_epi32: extern func (Int, Int, Int, Int) -> M128i
+_mm_set1_epi32: extern func (Int) -> M128i
 _mm_add_epi32: extern func (M128i, M128i) -> M128i
 _mm_mullo_epi16: extern func (M128i, M128i) -> M128i
 _mm_cvtps_epi32: extern func (M128) -> M128i
