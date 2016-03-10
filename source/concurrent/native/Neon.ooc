@@ -6,7 +6,20 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
-version (neon) {
 include arm_neon
 
-}
+// TODO: write test
+Int32x4: cover from int32x4_t
+UShort16x8: cover from uint16x8_t
+vdupq_n_u16: extern func (UShort) -> UShort16x8
+vdupq_n_s32: extern func (Int) -> Int32x4
+vaddq_u16: extern func (UShort16x8, UShort16x8) -> UShort16x8
+vaddq_s32: extern func (Int32x4, Int32x4) -> Int32x4
+vmulq_n_u16: extern func (UShort16x8, UShort) -> UShort16x8
+vmulq_n_s32: extern func (Int32x4, Int) -> Int32x4
+vld1q_u16: extern func (UShort) -> UShort16x8
+vld1q_s32: extern func (Int) -> Int32x4
+vst1q_u16: extern func (UShort*, UShort16x8)
+vst1q_s32: extern func (Int*, Int32x4)
+vgetq_lane_u16: extern func (UShort16x8, Int) -> UShort
+vgetq_lane_s32: extern func (Int32x4, Int) -> Int
