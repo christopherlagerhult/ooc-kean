@@ -13,3 +13,4 @@ Imports: Thread
 Imports: WaitCondition
 Imports: WaitLock
 Imports: native/Sse
+Imports: native/Neon
