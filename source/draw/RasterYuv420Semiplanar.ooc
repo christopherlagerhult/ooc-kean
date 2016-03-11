@@ -64,9 +64,12 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		result: This
 		if (this size == size)
 			result = this copy()
-		else version (experimentOptimized) {
+		else version (simd) {
 			result = This new(size, size x + (size x isOdd ? 1 : 0))
-			this resizeIntoOptimized(result)
+			version (android)
+				this resizeIntoNeon(result)
+			else
+				this resizeIntoSse(result)
 		}
 		else {
 			result = This new(size, size x + (size x isOdd ? 1 : 0))
@@ -74,9 +77,107 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		}
 		result
 	}
-	resizeIntoOptimized: func (target: This) {
-		thisYBuffer := this y buffer pointer //buffer: ByteBuffer
-		targetYBuffer := target y buffer pointer //buffer: ByteBuffer
+	resizeIntoNeon: func (target: This) {
+	version (android) {
+		thisYBuffer := this y buffer pointer
+		targetYBuffer := target y buffer pointer
+		neonValues := 4
+		thisStride, targetStride, srcColumn, targetIndex, thisIndex: Int32x4
+		resultThisStride := malloc(Int size * neonValues) as Int*
+		resultTargetStride := malloc(Int size * neonValues) as Int*
+		resultThisIndex := malloc(Int size * neonValues) as Int*
+		resultTargetIndex := malloc(Int size * neonValues) as Int*
+		rowPointer := malloc(Int size * neonValues) as Int*
+		columnPointer := malloc(Int size * neonValues) as Int*
+		row := 0
+		column := 0
+		rowPointer = row&
+		columnPointer = column&
+		while(row + neonValues <= target size y){
+			thisStride = vmulq_n_s32(vld1q_s32(rowPointer), this size y)
+			thisStride = vmulq_n_s32(div_s32(thisStride, target size y), this y stride)
+			targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target y stride)
+			for (stride in 0 .. neonValues) {
+				vst1q_s32(resultThisStride, thisStride)
+				vst1q_s32(resultTargetStride, targetStride)
+				column = 0
+				while (column + neonValues <= target size x) {
+					srcColumn = vmulq_n_s32(vld1q_s32(columnPointer), this size x)
+					thisIndex = vaddq_s32(div_s32(srcColumn, target size y), vdupq_n_s32(resultThisStride[stride]))
+					targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
+					vst1q_s32(resultThisIndex, thisIndex)
+				    vst1q_s32(resultTargetIndex, targetIndex)
+					for (i in 0 .. neonValues)
+						targetYBuffer[resultTargetIndex[i]] = thisYBuffer[resultThisIndex[i]]
+					column += neonValues
+				}
+				for (remaningColumn in column .. target size x) {
+					srcColumn := (this size x * remaningColumn) / target size y
+					targetYBuffer[remaningColumn + resultTargetStride[stride]] = thisYBuffer[srcColumn + resultThisStride[stride]]
+				}
+			}
+			row += neonValues
+		}
+		for (remainingRow in row .. target size y) {
+			srcRow := (this size y * remainingRow) / target size y
+			thisStride := srcRow * this y stride
+			targetStride := remainingRow * target y stride
+			for (column in 0 .. target size x) {
+				srcColumn := (this size x * column) / target size y
+				targetYBuffer[column + targetStride] = thisYBuffer[srcColumn + thisStride]
+			}
+		}
+		targetSizeHalf := target size / 2
+		thisSizeHalf := this size / 2
+		thisUvBuffer := this uv buffer pointer as ColorUv*
+		targetUvBuffer := target uv buffer pointer as ColorUv*
+		if (target size y isOdd)
+			targetSizeHalf = IntVector2D new(targetSizeHalf x, targetSizeHalf y + 1)
+		while ( row + neonValues <= targetSizeHalf y) {
+			thisStride = vmulq_n_s32(vld1q_s32(rowPointer), thisSizeHalf y)
+			thisStride = vmulq_n_s32(div_s32(thisStride, targetSizeHalf y), this uv stride / 2)
+			targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target uv stride / 2)
+			for (stride in 0 .. neonValues) {
+				vst1q_s32(resultThisStride, thisStride)
+				vst1q_s32(resultTargetStride, targetStride)
+				column := 0
+				while (column + neonValues <= targetSizeHalf x) {
+					srcColumn = vmulq_n_s32(vld1q_s32(columnPointer), thisSizeHalf x)
+					thisIndex = vaddq_s32(div_s32(srcColumn, targetSizeHalf x), vdupq_n_s32(resultThisStride[stride]))
+					targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
+					vst1q_s32(resultThisIndex, thisIndex)
+				    vst1q_s32(resultTargetIndex, targetIndex)
+					for (i in 0 .. neonValues)
+						targetUvBuffer[resultTargetIndex[i]] = thisUvBuffer[resultThisIndex[i]]
+					column += neonValues
+				}
+				for (remainingColumn in column .. targetSizeHalf x) {
+					srcColumn := (thisSizeHalf x * remainingColumn) / targetSizeHalf x
+					//Borde inte fungera med indexering av Int32x4!?
+					targetUvBuffer[remainingColumn + resultTargetStride[stride]] = thisUvBuffer[srcColumn + resultThisStride[stride]]
+				}
+			}
+			row += neonValues
+		}
+		for (remainingRow in row .. targetSizeHalf y) {
+			srcRow := (thisSizeHalf y * remainingRow) / targetSizeHalf y
+			thisStride := srcRow * this uv stride / 2
+			targetStride := remainingRow * target uv stride / 2
+			for (column in 0 .. targetSizeHalf x) {
+				srcColumn := (thisSizeHalf x * column) / targetSizeHalf x
+				targetUvBuffer[column + targetStride] = thisUvBuffer[srcColumn + thisStride]
+			}
+		}
+		memfree(rowPointer)
+		memfree(columnPointer)
+		memfree(resultTargetStride)
+		memfree(resultThisStride)
+	}
+	}
+	resizeIntoSse: func (target: This) {
+	version (!android) {
+		thisYBuffer := this y buffer pointer
+		targetYBuffer := target y buffer pointer
 		sseLength := 4
 		thisStride, targetStride, srcColumn, targetIndex, thisIndex: Int*
 		posix_memalign(thisStride& as Void**, 16, sseLength * Int size)
@@ -90,28 +191,24 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		targetIndexSse := targetIndex as M128i*
 		thisIndexSse := thisIndex as M128i*
 		row := 0
-		while ( row + (sseLength - 1) < target size y) {
+		while ( row + sseLength <= target size y) {
 			thisStrideSse[0] = _mm_mullo_epi16(_mm_set1_epi32(this size y), _mm_set_epi32(row, row + 1, row + 2, row + 3))
-			for (i in 0 .. sseLength)
-				thisStride[i] /= target size y
-			thisStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(thisStride[0], thisStride[1], thisStride[2], thisStride[3]), _mm_set1_epi32(this y stride))
+			thisStrideSse[0] = _mm_div_epi32(thisStrideSse[0], target size y)
+			thisStrideSse[0] = _mm_mullo_epi16(thisStrideSse[0], _mm_set1_epi32(this y stride))
 			targetStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(row, row + 1, row + 2, row + 3), _mm_set1_epi32(target y stride))
 			for (stride in 0 .. sseLength) {
 				column := 0
-				while (column + (sseLength - 1) < target size x) {
+				while (column + sseLength <= target size x) {
 					srcColumnSse[0] = _mm_mullo_epi16(_mm_set1_epi32(this size x), _mm_set_epi32(column, column + 1, column + 2, column + 3))
-					for (i in 0 .. sseLength)
-						srcColumn[i] /= target size x
+					srcColumnSse[0] = _mm_div_epi32(srcColumnSse[0], target size y)
+					thisIndexSse[0] = _mm_add_epi32(srcColumnSse[0], _mm_set1_epi32(thisStride[stride]))
 					targetIndexSse[0] = _mm_add_epi32(_mm_set_epi32(column + 3, column + 2, column + 1, column), _mm_set1_epi32(targetStride[(sseLength - 1) - stride]))
-					thisIndexSse[0] = _mm_add_epi32(_mm_set_epi32(srcColumn[0], srcColumn[1], srcColumn[2], srcColumn[3]), _mm_set1_epi32(thisStride[stride]))
-					targetYBuffer[targetIndex[0]] = thisYBuffer[thisIndex[0]]
-					targetYBuffer[targetIndex[1]] = thisYBuffer[thisIndex[1]]
-					targetYBuffer[targetIndex[2]] = thisYBuffer[thisIndex[2]]
-					targetYBuffer[targetIndex[3]] = thisYBuffer[thisIndex[3]]
+					for (i in 0 .. sseLength)
+						targetYBuffer[targetIndex[i]] = thisYBuffer[thisIndex[i]]
 					column += sseLength
 				}
 				for (remaningColumn in column .. target size x) {
-					srcColumn := (this size x * remaningColumn) / target size x
+					srcColumn := (this size x * remaningColumn) / target size y
 					targetYBuffer[remaningColumn + targetStride[(sseLength - 1) - stride]] = thisYBuffer[srcColumn + thisStride[stride]]
 				}
 			}
@@ -122,7 +219,7 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 			thisStride := srcRow * this y stride
 			targetStride := remainingRow * target y stride
 			for (column in 0 .. target size x) {
-				srcColumn := (this size x * column) / target size x
+				srcColumn := (this size x * column) / target size y
 				targetYBuffer[column + targetStride] = thisYBuffer[srcColumn + thisStride]
 			}
 		}
@@ -133,24 +230,20 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		row = 0
 		if (target size y isOdd)
 			targetSizeHalf = IntVector2D new(targetSizeHalf x, targetSizeHalf y + 1)
-		while ( row + (sseLength - 1) < targetSizeHalf y) {
+		while ( row + sseLength  <= targetSizeHalf y) {
 			thisStrideSse[0] = _mm_mullo_epi16(_mm_set1_epi32(thisSizeHalf y), _mm_set_epi32(row, row + 1, row + 2, row + 3))
-			for (i in 0 .. sseLength)
-				thisStride[i] /= targetSizeHalf y
-			thisStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(thisStride[0], thisStride[1], thisStride[2], thisStride[3]), _mm_set1_epi32(this uv stride / 2))
+			thisStrideSse[0] = _mm_div_epi32(thisStrideSse[0], targetSizeHalf y)
+			thisStrideSse[0] = _mm_mullo_epi16(thisStrideSse[0], _mm_set1_epi32(this uv stride / 2))
 			targetStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(row, row + 1, row + 2, row + 3), _mm_set1_epi32(target uv stride / 2))
 			for (stride in 0 .. sseLength) {
 				column := 0
-				while (column + (sseLength - 1) < targetSizeHalf x) {
+				while (column + sseLength <= targetSizeHalf x) {
 					srcColumnSse[0] = _mm_mullo_epi16(_mm_set1_epi32(thisSizeHalf x), _mm_set_epi32(column, column + 1, column + 2, column + 3))
-					for (i in 0 .. sseLength)
-						srcColumn[i] /=  targetSizeHalf x
+					srcColumnSse[0] = _mm_div_epi32(srcColumnSse[0], targetSizeHalf x)
+					thisIndexSse[0] = _mm_add_epi32(srcColumnSse[0], _mm_set1_epi32(thisStride[stride]))
 					targetIndexSse[0] = _mm_add_epi32(_mm_set_epi32(column + 3, column + 2, column + 1, column), _mm_set1_epi32(targetStride[(sseLength - 1) - stride]))
-					thisIndexSse[0] = _mm_add_epi32(_mm_set_epi32(srcColumn[0], srcColumn[1], srcColumn[2], srcColumn[3]), _mm_set1_epi32(thisStride[stride]))
-					targetUvBuffer[targetIndex[0]] = thisUvBuffer[thisIndex[0]]
-					targetUvBuffer[targetIndex[1]] = thisUvBuffer[thisIndex[1]]
-					targetUvBuffer[targetIndex[2]] = thisUvBuffer[thisIndex[2]]
-					targetUvBuffer[targetIndex[3]] = thisUvBuffer[thisIndex[3]]
+					for (i in 0 .. sseLength)
+						targetUvBuffer[targetIndex[i]] = thisUvBuffer[thisIndex[i]]
 					column += sseLength
 				}
 				for (remainingColumn in column .. targetSizeHalf x) {
@@ -174,6 +267,7 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		memfree(srcColumn)
 		memfree(targetIndex)
 		memfree(thisIndex)
+	}
 	}
 	resizeInto: func (target: This) {
 		thisYBuffer := this y buffer pointer
