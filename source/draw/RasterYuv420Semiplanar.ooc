@@ -82,49 +82,47 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		thisYBuffer := this y buffer pointer
 		targetYBuffer := target y buffer pointer
 		neonValues := 4
-		thisStride, targetStride, srcColumn, targetIndex, thisIndex: Int32x4
+		_thisStride, _targetStride, _srcColumn, _targetIndex, _thisIndex: Int32x4
 		resultThisStride := malloc(Int size * neonValues) as Int*
 		resultTargetStride := malloc(Int size * neonValues) as Int*
 		resultThisIndex := malloc(Int size * neonValues) as Int*
 		resultTargetIndex := malloc(Int size * neonValues) as Int*
-		rowPointer := malloc(Int size * neonValues) as Int*
-		columnPointer := malloc(Int size * neonValues) as Int*
 		row := 0
-		column := 0
-		rowPointer = row&
-		columnPointer = column&
 		while(row + neonValues <= target size y){
-			thisStride = vmulq_n_s32(vld1q_s32(rowPointer), this size y)
-			thisStride = vmulq_n_s32(div_s32(thisStride, target size y), this y stride)
-			targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target y stride)
+			rowPointer := [row, row + 1, row + 2, row + 3] as Int*
+			_thisStride = vmulq_n_s32(vld1q_s32(rowPointer), this size y)
+			_thisStride = vmulq_n_s32(div_s32(_thisStride, target size y), this y stride)
+			_targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target y stride)
 			for (stride in 0 .. neonValues) {
-				vst1q_s32(resultThisStride, thisStride)
-				vst1q_s32(resultTargetStride, targetStride)
-				column = 0
+				vst1q_s32(resultThisStride, _thisStride)
+				vst1q_s32(resultTargetStride, _targetStride)
+				column := 0
 				while (column + neonValues <= target size x) {
-					srcColumn = vmulq_n_s32(vld1q_s32(columnPointer), this size x)
-					thisIndex = vaddq_s32(div_s32(srcColumn, target size y), vdupq_n_s32(resultThisStride[stride]))
-					targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
-					vst1q_s32(resultThisIndex, thisIndex)
-				    vst1q_s32(resultTargetIndex, targetIndex)
+					columnPointer := [column, column + 1, column + 2, column + 3] as Int*
+					_srcColumn = div_s32(vmulq_n_s32(vld1q_s32(columnPointer), this size x), target size x)
+					_thisIndex = vaddq_s32(_srcColumn, vdupq_n_s32(resultThisStride[stride]))
+					_targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
+					vst1q_s32(resultThisIndex, _thisIndex)
+				    vst1q_s32(resultTargetIndex, _targetIndex)
 					for (i in 0 .. neonValues)
 						targetYBuffer[resultTargetIndex[i]] = thisYBuffer[resultThisIndex[i]]
 					column += neonValues
 				}
-				for (remaningColumn in column .. target size x) {
-					srcColumn := (this size x * remaningColumn) / target size y
-					targetYBuffer[remaningColumn + resultTargetStride[stride]] = thisYBuffer[srcColumn + resultThisStride[stride]]
+				for (i in column .. target size x) {
+					srcColumn := (this size x * i) / target size x
+					targetYBuffer[i + resultTargetStride[stride]] = thisYBuffer[srcColumn + resultThisStride[stride]]
 				}
 			}
 			row += neonValues
 		}
-		for (remainingRow in row .. target size y) {
-			srcRow := (this size y * remainingRow) / target size y
+		//do remaining rows serially
+		for (i in row .. target size y) {
+			srcRow := (this size y * i) / target size y
 			thisStride := srcRow * this y stride
-			targetStride := remainingRow * target y stride
-			for (column in 0 .. target size x) {
-				srcColumn := (this size x * column) / target size y
-				targetYBuffer[column + targetStride] = thisYBuffer[srcColumn + thisStride]
+			targetStride := i * target y stride
+			for (j in 0 .. target size x) {
+				srcColumn := (this size x * j) / target size x
+				targetYBuffer[j + targetStride] = thisYBuffer[srcColumn + thisStride]
 			}
 		}
 		targetSizeHalf := target size / 2
@@ -133,45 +131,49 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		targetUvBuffer := target uv buffer pointer as ColorUv*
 		if (target size y isOdd)
 			targetSizeHalf = IntVector2D new(targetSizeHalf x, targetSizeHalf y + 1)
+		row = 0
 		while ( row + neonValues <= targetSizeHalf y) {
-			thisStride = vmulq_n_s32(vld1q_s32(rowPointer), thisSizeHalf y)
-			thisStride = vmulq_n_s32(div_s32(thisStride, targetSizeHalf y), this uv stride / 2)
-			targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target uv stride / 2)
+			rowPointer := [row, row + 1, row + 2, row + 3] as Int*
+			_thisStride = vmulq_n_s32(vld1q_s32(rowPointer), thisSizeHalf y)
+			_thisStride = vmulq_n_s32(div_s32(_thisStride, targetSizeHalf y), this uv stride >> 1)
+			_targetStride = vmulq_n_s32(vld1q_s32(rowPointer), target uv stride >> 1)
 			for (stride in 0 .. neonValues) {
-				vst1q_s32(resultThisStride, thisStride)
-				vst1q_s32(resultTargetStride, targetStride)
+				vst1q_s32(resultThisStride, _thisStride)
+				vst1q_s32(resultTargetStride, _targetStride)
 				column := 0
 				while (column + neonValues <= targetSizeHalf x) {
-					srcColumn = vmulq_n_s32(vld1q_s32(columnPointer), thisSizeHalf x)
-					thisIndex = vaddq_s32(div_s32(srcColumn, targetSizeHalf x), vdupq_n_s32(resultThisStride[stride]))
-					targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
-					vst1q_s32(resultThisIndex, thisIndex)
-				    vst1q_s32(resultTargetIndex, targetIndex)
+					columnPointer := [column, column + 1, column + 2, column + 3] as Int*
+					_srcColumn = vmulq_n_s32(vld1q_s32(columnPointer), thisSizeHalf x)
+					_thisIndex = vaddq_s32(div_s32(_srcColumn, targetSizeHalf x), vdupq_n_s32(resultThisStride[stride]))
+					_targetIndex = vaddq_s32(vld1q_s32(columnPointer), vdupq_n_s32(resultTargetStride[stride]))
+					vst1q_s32(resultThisIndex, _thisIndex)
+				    vst1q_s32(resultTargetIndex, _targetIndex)
 					for (i in 0 .. neonValues)
 						targetUvBuffer[resultTargetIndex[i]] = thisUvBuffer[resultThisIndex[i]]
+
 					column += neonValues
 				}
 				for (remainingColumn in column .. targetSizeHalf x) {
 					srcColumn := (thisSizeHalf x * remainingColumn) / targetSizeHalf x
-					//Borde inte fungera med indexering av Int32x4!?
 					targetUvBuffer[remainingColumn + resultTargetStride[stride]] = thisUvBuffer[srcColumn + resultThisStride[stride]]
 				}
 			}
 			row += neonValues
 		}
-		for (remainingRow in row .. targetSizeHalf y) {
-			srcRow := (thisSizeHalf y * remainingRow) / targetSizeHalf y
-			thisStride := srcRow * this uv stride / 2
-			targetStride := remainingRow * target uv stride / 2
-			for (column in 0 .. targetSizeHalf x) {
-				srcColumn := (thisSizeHalf x * column) / targetSizeHalf x
-				targetUvBuffer[column + targetStride] = thisUvBuffer[srcColumn + thisStride]
+		//do remaining rows serially
+		for (i in row .. targetSizeHalf y) {
+			srcRow := (thisSizeHalf y * i) / targetSizeHalf y
+			thisStride := srcRow * this uv stride >> 1
+			targetStride := i * target uv stride >> 1
+			for (j in 0 .. targetSizeHalf x) {
+				srcColumn := (thisSizeHalf x * j) / targetSizeHalf x
+				targetUvBuffer[j + targetStride] = thisUvBuffer[srcColumn + thisStride]
 			}
 		}
-		memfree(rowPointer)
-		memfree(columnPointer)
 		memfree(resultTargetStride)
+		memfree(resultTargetIndex)
 		memfree(resultThisStride)
+		memfree(resultThisIndex)
 	}
 	}
 	resizeIntoSse: func (target: This) {
