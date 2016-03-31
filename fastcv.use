@@ -1,0 +1,8 @@
+Name: FastCV
+Description: FastCV library
+SourcePath: source/fastcv
+Imports: FastCv
+version (android) {
+	Libs: -llog
+	AndroidLibs: Slibfastcv
+}
