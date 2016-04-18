@@ -40,6 +40,21 @@ RasterMonochromeCanvas: class extends RasterPackedCanvas {
 		if (monochrome != image)
 			monochrome referenceCount decrease()
 	}
+	draw: func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) {
+		monochrome: RasterMonochrome = null
+		if (image instanceOf(RasterMonochrome))
+			monochrome = image as RasterMonochrome
+		else if (image instanceOf(RasterImage))
+			monochrome = RasterMonochrome convertFrom(image as RasterImage)
+		else
+			Debug error("Unsupported image type in RasterMonochromeCanvas draw")
+		version (neon)
+			This _resizeBilinearNeon(monochrome, this target, source, destination, fromRow, toRow)
+		else
+			This _resizeBilinear(monochrome, this target, source, destination, fromRow, toRow, 0, destination size x)
+		if (monochrome != image)
+			monochrome referenceCount decrease()
+	}
 }
 
 RasterMonochrome: class extends RasterPacked {
@@ -78,6 +93,16 @@ RasterMonochrome: class extends RasterPacked {
 		DrawState new(result) setInputImage(this) setInterpolate(interpolate) draw()
 		result
 	}
+	resizeInto: func (target: This, method: InterpolationMode, fromRow, toRow: Int) {
+		target canvas interpolationMode = method
+		(target canvas as RasterMonochromeCanvas) draw(this, IntBox2D new(this size), IntBox2D new(target size), fromRow, toRow)
+		target canvas interpolationMode = InterpolationMode Fast
+	}
+	/*resizeIntoOld: func (target: This, method: InterpolationMode) {
+		target canvas interpolationMode = method
+		(target canvas as RasterMonochromeCanvas) draw(this, IntBox2D new(this size), IntBox2D new(target size))
+		target canvas interpolationMode = InterpolationMode Fast
+	}*/
 	distance: override func (other: Image) -> Float {
 		result := 0.0f
 		if (!other || (this size != other size))

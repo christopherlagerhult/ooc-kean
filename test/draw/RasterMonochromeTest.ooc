@@ -16,7 +16,7 @@ RasterMonochromeTest: class extends Fixture {
 	sourceFlower := "test/draw/input/Flower.png"
 	init: func {
 		super("RasterMonochrome")
-		this add("equals 1", func {
+		/*this add("equals 1", func {
 			image1 := RasterMonochrome open(this sourceFlower)
 			image2 := RasterMonochrome open(this sourceSpace)
 			expect(image1 equals(image1), is true)
@@ -75,7 +75,7 @@ RasterMonochromeTest: class extends Fixture {
 				rowData free()
 			}
 			image referenceCount decrease()
-		})
+		})*/
 		this add("resize", func {
 			outputFast := "test/draw/output/RasterMonochrome_upscaledFast.png"
 			outputSmooth := "test/draw/output/RasterMonochrome_upscaledSmooth.png"
@@ -103,7 +103,30 @@ RasterMonochromeTest: class extends Fixture {
 			outputFast free()
 			outputSmooth free()
 		})
-		this add("copy", func {
+		this add("resizeUv", func {
+			/*outputY := "test/draw/output/TestImageY.png"
+			outputUV := "test/draw/output/TestImageUV.png"
+			output := "test/draw/output/TestImage.png"
+			imageLarge := RasterYuv420Semiplanar open(this sourceFlower)
+			imageSmall := RasterYuv420Semiplanar new(imageLarge size / 5)
+			imageLarge scaleInto(imageSmall, 2)
+			imageSmall scaleInto(imageLarge, 2)
+			imageLarge y save(outputY)
+			imageLarge uv save(outputUV)
+			imageLarge save(output)
+			imageSmall referenceCount decrease()
+			imageLarge referenceCount decrease()
+			output free()*/
+			sourceHeight: Int = 10
+			row: Int = 3
+			resultHeight := 20
+			sourceRow1 := ((sourceHeight as Float) * row) / resultHeight + 2
+			sourceRow2 := (sourceHeight * row) / resultHeight as Float + 2
+			"" println() . free()
+			"sourceRow1 = #{sourceRow1}" println() . free()
+			"sourceRow2 = #{sourceRow2}" println() . free()
+		})
+		/*this add("copy", func {
 			image := RasterMonochrome open(this sourceFlower)
 			image2 := image copy()
 			expect(image size == image2 size)
@@ -128,7 +151,7 @@ RasterMonochromeTest: class extends Fixture {
 			expect(image[0, 1] y as Int, is equal to(value64 as Int))
 			expect(image[0, 2] y as Int, is equal to(value as Int))
 			image referenceCount decrease()
-		})
+		})*/
 		/*this add("distance, convertFrom RasterRgba", func {
 			source := this sourceFlower
 			output := "test/draw/output/RasterRgbToMonochrome.png"
