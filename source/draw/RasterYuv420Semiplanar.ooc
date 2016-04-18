@@ -70,37 +70,37 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		}
 		result
 	}
-	resizeIntoParallel: func (target: This) {
-	version (android) {
-		threads := ThreadPool new(1)
+	scaleInto: func (target: This) {
+		this y resizeInto(target y, InterpolationMode Smooth, 0, target y size y)
+		this uv resizeInto(target uv, InterpolationMode Smooth, 0, target uv size y)
+	}
+	scaleInto: func ~threads (target: This, threadCount: Int) {
+		threads := ThreadPool new(threadCount)
 		mutex := Mutex new()
 		range := 0
 		promises := VectorList<Promise> new()
-		targetSizeHalf := target size / 2
-		if (target size y isOdd)
-			targetSizeHalf = IntVector2D new(targetSizeHalf x,  targetSizeHalf y + 1)
-		interval := target size y / threads threadCount
-		intervalHalf := targetSizeHalf y / threads threadCount
-		for (i in 0 .. threads threadCount)
+		intervalY := target y size y / threadCount
+		intervalUv := target uv size y / threadCount
+		for (i in 0 .. threadCount)
 			promises add(threads getPromise(
 				func {
 					mutex lock()
 					threadRange := range
 					range += 1
 					mutex unlock()
-					toY := (threadRange < threads threadCount - 1) ? (threadRange + 1) * interval : target size y
-					toUv := (threadRange < threads threadCount - 1) ? (threadRange + 1) * intervalHalf : targetSizeHalf y
-					resizeIntoNeon(target, threadRange * interval, toY, threadRange * intervalHalf, toUv)
+					toY := (threadRange + 1 == threads) ? target y size y : (threadRange + 1) * intervalY
+					toUv := (threadRange + 1 == threads) ? target uv size y : (threadRange + 1) * intervalUv
+					this y resizeInto(target y, InterpolationMode Smooth, threadRange * intervalY, toY)
+					this uv resizeInto(target uv, InterpolationMode Smooth, threadRange * intervalUv, toUv)
 				}
 			))
-		for (i in 0 .. threads threadCount)
+		for (i in 0 .. threadCount)
 			promises[i] wait()
 		promises free()
 		threads free()
 		mutex free()
 	}
-	}
-	resizeIntoNeon: func ~Parallel (target: This, fromY, toY, fromUV, toUV: Int) {
+	/*_scaleIntoUsingNeon: func ~range (target: This, fromY, toY, fromUV, toUV: Int) {
 	version (android) {
 		thisYBuffer := this y buffer pointer
 		targetYBuffer := target y buffer pointer
@@ -202,7 +202,7 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		memfree(resultThisIndex)
 	}
 	}
-	resizeIntoNeon: func (target: This) {
+	scaleIntoUsingNeon: func (target: This) {
 	version (android) {
 		thisYBuffer := this y buffer pointer
 		targetYBuffer := target y buffer pointer
@@ -303,102 +303,7 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		memfree(resultThisStride)
 		memfree(resultThisIndex)
 	}
-	}
-	resizeIntoSse: func (target: This) {
-	version (!android) {
-		thisYBuffer := this y buffer pointer
-		targetYBuffer := target y buffer pointer
-		sseLength := 4
-		thisStride, targetStride, srcColumn, targetIndex, thisIndex: Int*
-		posix_memalign(thisStride& as Void**, 16, sseLength * Int size)
-		posix_memalign(targetStride& as Void**, 16, sseLength * Int size)
-		posix_memalign(srcColumn& as Void**, 16, sseLength * Int size)
-		posix_memalign(targetIndex& as Void**, 16, sseLength * Int size)
-		posix_memalign(thisIndex& as Void**, 16, sseLength * Int size)
-		thisStrideSse := thisStride as M128i*
-		targetStrideSse := targetStride as M128i*
-		srcColumnSse := srcColumn as M128i*
-		targetIndexSse := targetIndex as M128i*
-		thisIndexSse := thisIndex as M128i*
-		row := 0
-		while ( row + sseLength <= target size y) {
-			thisStrideSse[0] = _mm_mullo_epi16(_mm_set1_epi32(this size y), _mm_set_epi32(row, row + 1, row + 2, row + 3))
-			thisStrideSse[0] = _mm_div_epi32(thisStrideSse[0], target size y)
-			thisStrideSse[0] = _mm_mullo_epi16(thisStrideSse[0], _mm_set1_epi32(this y stride))
-			targetStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(row, row + 1, row + 2, row + 3), _mm_set1_epi32(target y stride))
-			for (stride in 0 .. sseLength) {
-				column := 0
-				while (column + sseLength <= target size x) {
-					srcColumnSse[0] = _mm_mullo_epi16(_mm_set1_epi32(this size x), _mm_set_epi32(column, column + 1, column + 2, column + 3))
-					srcColumnSse[0] = _mm_div_epi32(srcColumnSse[0], target size y)
-					thisIndexSse[0] = _mm_add_epi32(srcColumnSse[0], _mm_set1_epi32(thisStride[stride]))
-					targetIndexSse[0] = _mm_add_epi32(_mm_set_epi32(column + 3, column + 2, column + 1, column), _mm_set1_epi32(targetStride[(sseLength - 1) - stride]))
-					for (i in 0 .. sseLength)
-						targetYBuffer[targetIndex[i]] = thisYBuffer[thisIndex[i]]
-					column += sseLength
-				}
-				for (remaningColumn in column .. target size x) {
-					srcColumn := (this size x * remaningColumn) / target size y
-					targetYBuffer[remaningColumn + targetStride[(sseLength - 1) - stride]] = thisYBuffer[srcColumn + thisStride[stride]]
-				}
-			}
-			row += sseLength
-		}
-		for (remainingRow in row .. target size y) {
-			srcRow := (this size y * remainingRow) / target size y
-			thisStride := srcRow * this y stride
-			targetStride := remainingRow * target y stride
-			for (column in 0 .. target size x) {
-				srcColumn := (this size x * column) / target size y
-				targetYBuffer[column + targetStride] = thisYBuffer[srcColumn + thisStride]
-			}
-		}
-		targetSizeHalf := target size / 2
-		thisSizeHalf := this size / 2
-		thisUvBuffer := this uv buffer pointer as ColorUv*
-		targetUvBuffer := target uv buffer pointer as ColorUv*
-		row = 0
-		if (target size y isOdd)
-			targetSizeHalf = IntVector2D new(targetSizeHalf x, targetSizeHalf y + 1)
-		while ( row + sseLength  <= targetSizeHalf y) {
-			thisStrideSse[0] = _mm_mullo_epi16(_mm_set1_epi32(thisSizeHalf y), _mm_set_epi32(row, row + 1, row + 2, row + 3))
-			thisStrideSse[0] = _mm_div_epi32(thisStrideSse[0], targetSizeHalf y)
-			thisStrideSse[0] = _mm_mullo_epi16(thisStrideSse[0], _mm_set1_epi32(this uv stride / 2))
-			targetStrideSse[0] = _mm_mullo_epi16(_mm_set_epi32(row, row + 1, row + 2, row + 3), _mm_set1_epi32(target uv stride / 2))
-			for (stride in 0 .. sseLength) {
-				column := 0
-				while (column + sseLength <= targetSizeHalf x) {
-					srcColumnSse[0] = _mm_mullo_epi16(_mm_set1_epi32(thisSizeHalf x), _mm_set_epi32(column, column + 1, column + 2, column + 3))
-					srcColumnSse[0] = _mm_div_epi32(srcColumnSse[0], targetSizeHalf x)
-					thisIndexSse[0] = _mm_add_epi32(srcColumnSse[0], _mm_set1_epi32(thisStride[stride]))
-					targetIndexSse[0] = _mm_add_epi32(_mm_set_epi32(column + 3, column + 2, column + 1, column), _mm_set1_epi32(targetStride[(sseLength - 1) - stride]))
-					for (i in 0 .. sseLength)
-						targetUvBuffer[targetIndex[i]] = thisUvBuffer[thisIndex[i]]
-					column += sseLength
-				}
-				for (remainingColumn in column .. targetSizeHalf x) {
-					srcColumn := (thisSizeHalf x * remainingColumn) / targetSizeHalf x
-					targetUvBuffer[remainingColumn + targetStride[(sseLength - 1) - stride]] = thisUvBuffer[srcColumn + thisStride[stride]]
-				}
-			}
-			row += sseLength
-		}
-		for (remainingRow in row .. targetSizeHalf y) {
-			srcRow := (thisSizeHalf y * remainingRow) / targetSizeHalf y
-			thisStride := srcRow * this uv stride / 2
-			targetStride := remainingRow * target uv stride / 2
-			for (column in 0 .. targetSizeHalf x) {
-				srcColumn := (thisSizeHalf x * column) / targetSizeHalf x
-				targetUvBuffer[column + targetStride] = thisUvBuffer[srcColumn + thisStride]
-			}
-		}
-		memfree(thisStride)
-		memfree(targetStride)
-		memfree(srcColumn)
-		memfree(targetIndex)
-		memfree(thisIndex)
-	}
-	}
+	}*/
 	resizeInto: func (target: This) {
 		thisYBuffer := this y buffer pointer
 		targetYBuffer := target y buffer pointer
