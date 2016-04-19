@@ -28,8 +28,11 @@ vmulq_n_s32: extern func (Int32x4, Int) -> Int32x4
 //vld1q_u16: extern func (UShort*) -> UShort16x8
 vld1q_s32: extern func (Int*) -> Int32x4
 vld1q_f32: extern func (Float*) -> Float32x4
+vgetq_lane_f32: extern func(Float32x4, Int) -> Float
+vgetq_lane_s32: extern func(Int32x4, Int) -> Int
 //vst1q_u16: extern func (UShort*, UShort16x8)
 vst1q_s32: extern func (Int*, Int32x4)
+vst1q_u32: extern func (UInt*, UInt32x4)
 vst1q_f32: extern func (Float*, Float32x4)
 vcvtq_f32_s32: extern func (Int32x4) -> Float32x4
 vcvtq_s32_f32: extern func (Float32x4) -> Int32x4
