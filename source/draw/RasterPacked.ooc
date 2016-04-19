@@ -121,39 +121,18 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			}
 		}
 	}
-	_debug: static func ~float (neonValues: Float32x4, column: Int, original: Float, s: String) {
-		counter := static 0
-			if (counter < 8) {
-			result := malloc(Float size * 4) as Float*
-			vst1q_f32(result, neonValues)
-			if (result[0] as Float != original as Float)
-				Debug print("Experiment: (col " + column + ") " + s + " should be " + original + ", was " + result[0])
-			memfree(result)
-			counter += 1
-		}
-	}
-	_debug: static func ~int (neonValues: Int32x4, column: Int, original: Int, s: String) {
-		counter := static 0
-			if (counter < 8) {
-			result := malloc(Int size * 4) as Int*
-			vst1q_s32(result, neonValues)
-			if (result[0] as Int != original as Int)
-				Debug print("Experiment: (col " + column + ") " + s + " should be " + original + ", was " + result[0])
-			memfree(result)
-			counter += 1
-		}
-	}
+	/*
 	_validateResult: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, row, maxRow, column, maxColumn: Int) {
-		printed := static false
-		if (!printed) {
+		printed := static 0
+		if (printed < 16) {
 			if (target instanceOf(RasterMonochrome)) {
 				targetCopy := RasterMonochrome new(target)
 				This _resizeBilinear(source, targetCopy, sourceBox, resultBox, row, maxRow, column, maxColumn)
 				for (i in 0 .. targetCopy buffer size)
 					if (targetCopy buffer pointer[i] != target buffer pointer[i]) {
-						Debug print("Experiment: (row "+row+", column"+column+") y[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
-						printed = true
-						//break
+						Debug print("Experiment: y[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
+						printed += 1
+						break
 					}
 			}
 			else {
@@ -161,54 +140,41 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 				This _resizeBilinear(source, targetCopy, sourceBox, resultBox, row, maxRow, column, maxColumn)
 				for (i in 0 .. targetCopy buffer size)
 					if (targetCopy buffer pointer[i] != target buffer pointer[i]) {
-						Debug print("Experiment: (row "+row+", column"+column+") uv[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
-						printed = true
-						//break
+						Debug print("Experiment: uv[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
+						printed += 1
+						break
 					}
 			}
 		}
 	}
+	*/
+	/*source and target width/height must be factor of 4*/
 	_resizeBilinearNeon: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, row, maxRow: Int) {
-		Debug print("Experiment: --------------------------------------------------")
+	version (neon) {
 		targetCoordinateSystemXLeftward := target coordinateSystem & CoordinateSystem XLeftward
 		targetCoordinateSystemYUpward := target coordinateSystem & CoordinateSystem YUpward
 		sourceCoordinateSystemXLeftward := source coordinateSystem & CoordinateSystem XLeftward
 		sourceCoordinateSystemYUpward := source coordinateSystem & CoordinateSystem YUpward
 		neonOne := vdupq_n_f32(1.0f)
+		neonZero := vdupq_n_f32(0.0f)
 		neonLength := 4
 		weightDown := malloc(Float size * neonLength) as Float*
 		sourceRowUp := malloc(Int size * neonLength) as Int*
-		//finalValues := malloc(Int size * neonLength) as Int*
-		bytesPerPixel := target bytesPerPixel
-		(resultWidth, resultHeight) := (resultBox size x, resultBox size y)
-
-		(sourceWidth, sourceHeight) := (sourceBox size x, sourceBox size y)
+		indexes := malloc(Int size * neonLength) as Int*
+		neonBytesPerPixel := vdupq_n_s32(target bytesPerPixel)
+		resultWidth := resultBox size x
 		(neonSourceWidth, neonSourceHeight) := (vdupq_n_f32(sourceBox size x as Float), vdupq_n_f32(sourceBox size y as Float))
-
-		(sourceStartColumn, sourceStartRow) := (sourceBox leftTop x, sourceBox leftTop y)
 		(neonSourceStartColumn, neonSourceStartRow) := (vdupq_n_f32(sourceBox leftTop x as Float), vdupq_n_f32(sourceBox leftTop y as Float))
-
-		(resultStartColumn, resultStartRow) := (resultBox leftTop x, resultBox leftTop y)
 		(neonResultStartColumn, neonResultStartRow) := (vdupq_n_s32(resultBox leftTop x), vdupq_n_s32(resultBox leftTop y))
-
-		(sourceStride, resultStride) := (source stride, target stride)
-		(neonSourceStride, neonResultStride) := (vdupq_n_s32(source stride), vdupq_n_s32(target stride))
-
 		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
+		neonRow := vld1q_f32([row, row + 1, row + 2, row + 3] as Float*)
+		if ((maxRow - row) % neonLength != 0)
+			Debug print("Experiment: Rows missed!")
+		if (resultWidth % neonLength != 0)
+			Debug print("Experiment: Columns missed!")
 		while (row + neonLength <= maxRow) {
-			column := 0
-
-			//ORIGINAL
-			/*sourceRow := ((sourceHeight as Float) * row) / resultHeight + sourceStartRow
-			sourceRowUp := sourceRow as Int
-			weightDown := 0.0f
-			if (sourceRowUp + 1 < sourceHeight)
-				weightDown = sourceRow - sourceRowUp as Float*/
-			//ORIGINAL
-
-			neonRow := vld1q_f32([row, row + 1, row + 2, row + 3] as Float*)
 			neonSourceRow := vmulq_f32(neonSourceHeight, neonRow)
-			neonSourceRow = div_f32(neonSourceRow, resultHeight as Float)
+			neonSourceRow = div_f32(neonSourceRow, resultBox size y as Float)
 			neonSourceRow = vaddq_f32(neonSourceRow, neonSourceStartRow)
 			neonSourceRowUp := vcvtq_s32_f32(neonSourceRow)
 			neonLogicalSourceRowUp	:= vcltq_f32(vaddq_f32(neonOne, neonSourceRow), neonSourceHeight)
@@ -216,23 +182,9 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			for (lane in 0 .. neonLength) {
 				vst1q_s32(sourceRowUp, neonSourceRowUp)
 				vst1q_f32(weightDown, neonWeightDown)
+				column := 0
+				neonColumn := vld1q_f32([0.0f, 1.0f, 2.0f, 3.0f] as Float*)
 				while (column + neonLength <= resultWidth) {
-					//ORIGINAL 1/2
-					/*sourceColumn := ((sourceWidth as Float) * column) / resultWidth + sourceStartColumn
-					sourceColumnLeft := sourceColumn as Int
-					weightRight := 0.0f
-					if (sourceColumnLeft + 1 < sourceWidth)
-						weightRight := sourceColumn - sourceColumnLeft as Float
-					resultColumnTransformed := (targetCoordinateSystemXLeftward != 0) ? target width - (column + resultStartColumn) - 1 : column + resultStartColumn
-					resultRowTransformed := (targetCoordinateSystemYUpward != 0) ? target height - (row + resultStartRow) - 1 : row + resultStartRow
-					sourceColumnLeftTransformed := (sourceCoordinateSystemXLeftward != 0) ? source width - sourceColumnLeft - 1 : sourceColumnLeft
-					sourceRowUpTransformed := (sourceCoordinateSystemYUpward != 0) ? source height - sourceRowUp - 1 : sourceRowUp
-					(topLeft, topRight) := ((1.0f - weightDown) * (1.0f - weightRight), (1.0f - weightDown) * weightRight)
-					(bottomLeft, bottomRight) := (weightDown * (1.0f - weightRight), weightDown * weightRight)*/
-					//This _blendSquare(sourceBuffer, resultBuffer, sourceStride, resultStride, sourceRowUpTransformed, sourceColumnLeftTransformed, resultRowTransformed, resultColumnTransformed, topLeft, topRight, bottomLeft, bottomRight, bytesPerPixel)
-					//ORIGINAL 1/2
-
-					neonColumn := vld1q_f32([column, column + 1, column + 2, column + 3] as Float*)
 					neonSourceColumn := vmulq_f32(neonSourceWidth, neonColumn)
 					neonSourceColumn = div_f32(neonSourceColumn, resultWidth as Float)
 					neonSourceColumn = vaddq_f32(neonSourceColumn, neonSourceStartColumn)
@@ -251,78 +203,51 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 					neonSourceRowUpTransformed := (sourceCoordinateSystemYUpward != 0) ? vsubq_s32(neonSourceHeightMinusOne, vdupq_n_s32(sourceRowUp[lane])) : vdupq_n_s32(sourceRowUp[lane])
 					(neonTopLeft, neonTopRight) := (vmulq_f32(vsubq_f32(neonOne, vdupq_n_f32(weightDown[lane])), vsubq_f32(neonOne, neonWeightRight)), vmulq_f32(vsubq_f32(neonOne, vdupq_n_f32(weightDown[lane])), neonWeightRight))
 					(neonBottomLeft, neonBottomRight) := (vmulq_f32(vdupq_n_f32(weightDown[lane]), vsubq_f32(neonOne, neonWeightRight)), vmulq_f32(vdupq_n_f32(weightDown[lane]), neonWeightRight))
-					This _blendSquareNeon(sourceBuffer, resultBuffer, neonLength, sourceStride, resultStride, bytesPerPixel, neonSourceRowUpTransformed, neonSourceColumnLeftTransformed, neonResultRowTransformed, neonResultColumnTransformed, neonTopLeft, neonTopRight, neonBottomLeft, neonBottomRight)
-					_validateResult(source, target, sourceBox, resultBox, row, row + lane + 1, column, column + neonLength)
+
+					//blend
+					neonSCLTmultBPP := vmulq_s32(neonSourceColumnLeftTransformed, neonBytesPerPixel)
+					neonSCLTplusOnemultBPP := vmulq_s32(vaddq_s32(neonSourceColumnLeftTransformed, vdupq_n_s32(1)), neonBytesPerPixel)
+					neonSRUTmultSS := vmulq_s32(neonSourceRowUpTransformed, vdupq_n_s32(source stride))
+					neonSRUTplusOnemultSS := vmulq_s32(vaddq_s32(neonSourceRowUpTransformed, vdupq_n_s32(1)), vdupq_n_s32(source stride))
+					for (i in 0 .. target bytesPerPixel) {
+						neonBytes := vdupq_n_s32(i)
+						vst1q_s32(indexes, vaddq_s32(vaddq_s32(neonSCLTmultBPP, neonSRUTmultSS), neonBytes))
+						(indexes[0], indexes[1], indexes[2], indexes[3]) = (sourceBuffer[indexes[0]], sourceBuffer[indexes[1]], sourceBuffer[indexes[2]], sourceBuffer[indexes[3]])
+						neonFinalValue := vcvtq_s32_f32(vmulq_f32(neonTopLeft, vcvtq_f32_s32(vld1q_s32(indexes))))
+						vst1q_s32(indexes, vaddq_s32(vaddq_s32(neonSCLTplusOnemultBPP, neonSRUTmultSS), neonBytes))
+						(indexes[0], indexes[1], indexes[2], indexes[3]) = (sourceBuffer[indexes[0]], sourceBuffer[indexes[1]], sourceBuffer[indexes[2]], sourceBuffer[indexes[3]])
+						neonFinalValue = vaddq_s32(neonFinalValue, vcvtq_s32_f32(vmulq_f32(neonTopRight, vcvtq_f32_s32(vld1q_s32(indexes)))))
+						vst1q_s32(indexes, vaddq_s32(vaddq_s32(neonSCLTmultBPP, neonSRUTplusOnemultSS), neonBytes))
+						(indexes[0], indexes[1], indexes[2], indexes[3]) = (sourceBuffer[indexes[0]], sourceBuffer[indexes[1]], sourceBuffer[indexes[2]], sourceBuffer[indexes[3]])
+						neonFinalValue = vaddq_s32(neonFinalValue, vcvtq_s32_f32(vmulq_f32(neonBottomLeft, vcvtq_f32_s32(vld1q_s32(indexes)))))
+						vst1q_s32(indexes, vaddq_s32(vaddq_s32(neonSCLTplusOnemultBPP, neonSRUTplusOnemultSS), neonBytes))
+						(indexes[0], indexes[1], indexes[2], indexes[3]) = (sourceBuffer[indexes[0]], sourceBuffer[indexes[1]], sourceBuffer[indexes[2]], sourceBuffer[indexes[3]])
+						neonFinalValue = vaddq_s32(neonFinalValue, vcvtq_s32_f32(vmulq_f32(neonBottomRight, vcvtq_f32_s32(vld1q_s32(indexes)))))
+
+						neonResultIndex := vaddq_s32(vaddq_s32(vmulq_s32(neonResultColumnTransformed, neonBytesPerPixel), vmulq_s32(neonResultRowTransformed, vdupq_n_s32(target stride))), neonBytes)
+						resultBuffer[vgetq_lane_s32(neonResultIndex, 0)] = vgetq_lane_s32(neonFinalValue, 0)
+						resultBuffer[vgetq_lane_s32(neonResultIndex, 1)] = vgetq_lane_s32(neonFinalValue, 1)
+						resultBuffer[vgetq_lane_s32(neonResultIndex, 2)] = vgetq_lane_s32(neonFinalValue, 2)
+						resultBuffer[vgetq_lane_s32(neonResultIndex, 3)] = vgetq_lane_s32(neonFinalValue, 3)
+					}
 					column += neonLength
+					neonColumn = vaddq_f32(neonColumn, vdupq_n_f32(neonLength as Float))
 				}
 			}
-			//if (column < resultWidth)
-			//	This _resizeBilinear(source, target, sourceBox, resultBox, row, row + neonLength, column, resultWidth)
 			row += neonLength
+			neonRow = vaddq_f32(neonRow, vdupq_n_f32(neonLength as Float))
 		}
 		memfree(sourceRowUp)
 		memfree(weightDown)
-		//This _resizeBilinear(source, target, sourceBox, resultBox, row, maxRow, 0, resultWidth)
-	}
-	_blendSquareNeon: static func (sourceBuffer, resultBuffer: Byte*, neonLength, sourceStride, resultStride, bytesPerPixel: Int, neonSourceRow, neonSourceColumn, neonRow, neonColumn: Int32x4, neonTopLeft, neonTopRight, neonBottomLeft, neonBottomRight: Float32x4) {
-		printed := static false
-		neonZero := vdupq_n_f32(0.0f)
-		neonBytesPerPixel := vdupq_n_s32(bytesPerPixel)
-		indexes := malloc(Int size * neonLength) as Int*
-		finalValues := malloc(Int size * neonLength) as Int*
-		neonSCLTmultBPP := vmulq_s32(neonSourceColumn, neonBytesPerPixel)
-		neonSCLTplusOnemultBPP := vmulq_s32(vaddq_s32(neonSourceColumn, vdupq_n_s32(1)), neonBytesPerPixel)
-		neonSRUTmultSS := vmulq_s32(neonSourceRow, vdupq_n_s32(sourceStride))
-		neonSRUTplusOnemultSS := vmulq_s32(vaddq_s32(neonSourceRow, vdupq_n_s32(1)), vdupq_n_s32(sourceStride))
-		for (i in 0 .. bytesPerPixel) {
-			neonSourceBufferIndex := vaddq_s32(vaddq_s32(neonSCLTmultBPP, neonSRUTmultSS), vdupq_n_s32(i))
-			vst1q_s32(indexes, neonSourceBufferIndex)
-			for (index in 0 .. neonLength)
-				indexes[index] = sourceBuffer[indexes[index]]
-			neonFinalValueTemp := vmulq_f32(neonTopLeft, vcvtq_f32_s32(vld1q_s32(indexes)))
-			neonFinalValueLogical := vcgtq_f32(neonTopLeft, neonZero)
-			neonFinalValue := vcvtq_s32_f32(vbslq_f32(neonFinalValueLogical, neonFinalValueTemp, neonZero))
-
-			neonSourceBufferIndex = vaddq_s32(vaddq_s32(neonSCLTplusOnemultBPP, neonSRUTmultSS), vdupq_n_s32(i))
-			vst1q_s32(indexes, neonSourceBufferIndex)
-			for (index in 0 .. neonLength)
-				indexes[index] = sourceBuffer[indexes[index]]
-			neonFinalValueTemp = vmulq_f32(neonTopRight, vcvtq_f32_s32(vld1q_s32(indexes)))
-			neonFinalValueLogical = vcgtq_f32(neonTopRight, neonZero)
-			neonFinalValue = vaddq_s32(neonFinalValue,vcvtq_s32_f32(vbslq_f32(neonFinalValueLogical, neonFinalValueTemp, neonZero)))
-
-			neonSourceBufferIndex = vaddq_s32(vaddq_s32(neonSCLTmultBPP, neonSRUTplusOnemultSS), vdupq_n_s32(i))
-			vst1q_s32(indexes, neonSourceBufferIndex)
-			for (index in 0 .. neonLength)
-				indexes[index] = sourceBuffer[indexes[index]]
-			neonFinalValueTemp = vmulq_f32(neonBottomLeft, vcvtq_f32_s32(vld1q_s32(indexes)))
-			neonFinalValueLogical = vcgtq_f32(neonBottomLeft, neonZero)
-			neonFinalValue = vaddq_s32(neonFinalValue,vcvtq_s32_f32(vbslq_f32(neonFinalValueLogical, neonFinalValueTemp, neonZero)))
-
-			neonSourceBufferIndex = vaddq_s32(vaddq_s32(neonSCLTplusOnemultBPP, neonSRUTplusOnemultSS), vdupq_n_s32(i))
-			vst1q_s32(indexes, neonSourceBufferIndex)
-			for (index in 0 .. neonLength)
-				indexes[index] = sourceBuffer[indexes[index]]
-			neonFinalValueTemp = vmulq_f32(neonBottomRight, vcvtq_f32_s32(vld1q_s32(indexes)))
-			neonFinalValueLogical = vcgtq_f32(neonBottomRight, neonZero)
-			neonFinalValue = vaddq_s32(neonFinalValue,vcvtq_s32_f32(vbslq_f32(neonFinalValueLogical, neonFinalValueTemp, neonZero)))
-
-			neonResultIndex := vaddq_s32(vmulq_s32(vmulq_s32(neonColumn, neonBytesPerPixel), vmulq_s32(neonRow, vdupq_n_s32(resultStride))), vdupq_n_s32(i))
-			vst1q_s32(indexes, neonResultIndex)
-			vst1q_s32(finalValues, neonFinalValue)
-
-
-			for(index in 0 .. neonLength) {
-				if (!printed)
-					Debug print("Experiment: ["+indexes[index]+"] = "+finalValues[index])
-				resultBuffer[indexes[index]] = finalValues[index]
-			}
-
-		}
-		printed = true
 		memfree(indexes)
-		memfree(finalValues)
 	}
+	}
+	/*_blendSquareNeon: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, bytesPerPixel: Int, neonSourceRow, neonSourceColumn, neonRow, neonColumn: Int32x4, neonTopLeft, neonTopRight, neonBottomLeft, neonBottomRight: Float32x4) {
+		neonLength := 4
+
+		neonBytesPerPixel := vdupq_n_s32(bytesPerPixel)
+
+	}*/
 	_blendSquare: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, sourceRow, sourceColumn, row, column: Int, weightTopLeft, weightTopRight, weightBottomLeft, weightBottomRight: Float, bytesPerPixel: Int) {
 		finalValue: Byte = 0
 		for (i in 0 .. bytesPerPixel) {
