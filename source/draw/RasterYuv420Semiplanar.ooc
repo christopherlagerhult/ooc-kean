@@ -71,14 +71,8 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 		result
 	}
 	scaleInto: func (target: This) {
-		version (neon) {
-			this y resizeInto(target y, InterpolationMode Smooth, 0, target y size y, true)
-			this uv resizeInto(target uv, InterpolationMode Smooth, 0, target uv size y, true)
-		}
-		else {
-			this y resizeInto(target y, InterpolationMode Smooth, 0, target y size y, false)
-			this uv resizeInto(target uv, InterpolationMode Smooth, 0, target uv size y, false)
-		}
+		this y resizeInto(target y, true, 0, target y size y)
+		this uv resizeInto(target uv, true, 0, target uv size y)
 	}
 	scaleInto: func ~threads (target: This, threadCount: Int) {
 		threads := ThreadPool new(threadCount)
@@ -96,18 +90,10 @@ RasterYuv420Semiplanar: class extends RasterYuvSemiplanar {
 					mutex unlock()
 					toY := (threadRange + 1 == threadCount) ? target y size y : (threadRange + 1) * intervalY
 					toUv := (threadRange + 1 == threadCount) ? target uv size y : (threadRange + 1) * intervalUv
-					this y resizeInto(target y, InterpolationMode Smooth, threadRange * intervalY, toY, true)
-					this uv resizeInto(target uv, InterpolationMode Smooth, threadRange * intervalUv, toUv, true)
+					this y resizeInto(target y, true, threadRange * intervalY, toY)
+					this uv resizeInto(target uv, true, threadRange * intervalUv, toUv)
 				}
 			))
-		/*if (threadCount * intervalY < target y size y) {
-			Debug print("Experiment: Main doing " + (target y size y - threadCount * intervalY))
-			this y resizeInto(target y, InterpolationMode Smooth, threadCount * intervalY, target y size y, false)
-		}
-		if (threadCount * intervalUv < target uv size y) {
-			Debug print("Experiment: Main doing " + (target uv size y - threadCount * intervalUv))
-			this y resizeInto(target y, InterpolationMode Smooth, threadCount * intervalUv, target uv size y, false)
-		}*/
 		for (i in 0 .. threadCount)
 			promises[i] wait()
 		promises free()

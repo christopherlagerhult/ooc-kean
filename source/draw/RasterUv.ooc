@@ -40,8 +40,7 @@ RasterUvCanvas: class extends RasterPackedCanvas {
 		if (uv != image)
 			uv referenceCount decrease()
 	}
-	drawNeon: func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) {
-	version (neon) {
+	draw: override func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) {
 		uv: RasterUv = null
 		if (image instanceOf(RasterUv))
 			uv = image as RasterUv
@@ -49,20 +48,10 @@ RasterUvCanvas: class extends RasterPackedCanvas {
 			uv = RasterUv convertFrom(image as RasterImage)
 		else
 			Debug error("Unsupported image type in RasterUvCanvas draw")
-		This _resizeBilinearNeon(uv, this target, source, destination, fromRow, toRow)
-		if (uv != image)
-			uv referenceCount decrease()
-	}
-	}
-	draw: func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) {
-		uv: RasterUv = null
-		if (image instanceOf(RasterUv))
-			uv = image as RasterUv
-		else if (image instanceOf(RasterImage))
-			uv = RasterUv convertFrom(image as RasterImage)
+		version (neon)
+			This _resizeBilinearNeon(uv, this target, source, destination, fromRow, toRow)
 		else
-			Debug error("Unsupported image type in RasterUvCanvas draw")
-		This _resizeBilinear(uv, this target, source, destination, fromRow, toRow, 0, destination size x)
+			This _resizeBilinear(uv, this target, source, destination, fromRow, toRow, 0, destination size x)
 		if (uv != image)
 			uv referenceCount decrease()
 	}
@@ -111,18 +100,12 @@ RasterUv: class extends RasterPacked {
 		DrawState new(result) setInputImage(this) setInterpolate(interpolate) draw()
 		result
 	}
-	resizeInto: func (target: This, method: InterpolationMode, fromRow, toRow: Int, useNeon: Bool) {
-		target canvas interpolationMode = method
-		if (useNeon)
-			(target canvas as RasterUvCanvas) drawNeon(this, IntBox2D new(this size), IntBox2D new(target size), fromRow, toRow)
-		else
-			(target canvas as RasterUvCanvas) draw(this, IntBox2D new(this size), IntBox2D new(target size), fromRow, toRow)
-		target canvas interpolationMode = InterpolationMode Fast
+	resizeInto: func (target: This, interpolate: Bool, fromRow, toRow: Int) {
+		//(target canvas as RasterUvCanvas) drawNeon(this, IntBox2D new(this size), IntBox2D new(target size), fromRow, toRow)
+		DrawState new(target) setInputImage(this) setInterpolate(interpolate) draw(fromRow, toRow)
 	}
-	/*resizeIntoOld: func (target: This, method: InterpolationMode) {
-		target canvas interpolationMode = method
-		(target canvas as RasterUvCanvas) draw(this, IntBox2D new(this size), IntBox2D new(target size))
-		target canvas interpolationMode = InterpolationMode Fast
+	/*resizeIntoOld: func (target: This) {
+		DrawState new(target) setInputImage(this) setInterpolate(true) draw()
 	}*/
 	distance: override func (other: Image) -> Float {
 		result := 0.0f

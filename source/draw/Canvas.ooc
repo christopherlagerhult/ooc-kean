@@ -49,4 +49,6 @@ Canvas: abstract class {
 	}
 	fill: abstract func (color: ColorRgba)
 	draw: virtual func ~DrawState (drawState: DrawState) { Debug error("draw~DrawState unimplemented for class " + this class name + "!") }
+	draw: virtual func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) { Debug error("draw~DrawState unimplemented for class " + this class name + "!") }
+	drawNeon: virtual func (image: Image, source, destination: IntBox2D, fromRow, toRow: Int) { Debug error("draw~DrawState unimplemented for class " + this class name + "!") }
 }

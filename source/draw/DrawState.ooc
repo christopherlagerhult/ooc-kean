@@ -157,6 +157,16 @@ DrawState: cover {
 			raise(this target == null, "Can't draw without a target.")
 		this target canvas draw(this)
 	}
+	draw: func ~range (fromRow, toRow: Int) {
+		version(safe)
+			raise(this target == null, "Can't draw without a target.")
+		this target canvas draw(this inputImage, this getSourceLocal() toIntBox2D(), this getViewport(), fromRow, toRow)
+	}
+	/*drawNeon: func (fromRow, toRow: Int) {
+		version(safe)
+			raise(this target == null, "Can't draw without a target.")
+		this target canvas drawNeon(this inputImage, this getSourceLocal() toIntBox2D(), this getViewport(), fromRow, toRow)
+	}*/
 	// Example: DrawState new(targetImage) setOrigin(point) setInputImage(context getDefaultFont()) write(t"Hello world!")
 	write: func (message: Text) {
 		version(safe) {

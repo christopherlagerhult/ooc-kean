@@ -66,6 +66,12 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 		(resultStartColumn, resultStartRow) := (resultBox leftTop x, resultBox leftTop y)
 		(sourceStride, resultStride) := (source stride, target stride)
 		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
+		//printed := static false
+		/*if (printed == false && bytesPerPixel == 2) {
+			"source: w: #{sourceWidth}, s: #{sourceStride}" println() . free()
+			"result: w: #{resultWidth}, s: #{resultStride}" println() . free()
+			printed = true
+		}*/
 		for (row in 0 .. resultHeight) {
 			sourceRow := ((sourceHeight as Float) * row) / resultHeight + sourceStartRow
 			sourceRowUp := sourceRow floor() as Int
@@ -121,36 +127,44 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			}
 		}
 	}
-	/*
-	_validateResult: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, row, maxRow, column, maxColumn: Int) {
-		printed := static 0
-		if (printed < 16) {
-			if (target instanceOf(RasterMonochrome)) {
-				targetCopy := RasterMonochrome new(target)
-				This _resizeBilinear(source, targetCopy, sourceBox, resultBox, row, maxRow, column, maxColumn)
-				for (i in 0 .. targetCopy buffer size)
-					if (targetCopy buffer pointer[i] != target buffer pointer[i]) {
-						Debug print("Experiment: y[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
-						printed += 1
-						break
-					}
-			}
-			else {
-				targetCopy := RasterUv new(target)
-				This _resizeBilinear(source, targetCopy, sourceBox, resultBox, row, maxRow, column, maxColumn)
-				for (i in 0 .. targetCopy buffer size)
-					if (targetCopy buffer pointer[i] != target buffer pointer[i]) {
-						Debug print("Experiment: uv[" + i + "] should be " + targetCopy buffer pointer[i] + ", was " + target buffer pointer[i])
-						printed += 1
-						break
-					}
+	_resizeTest: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, startRow, endRow, startColumn, endColumn: Int) {
+		(sourceStride, resultStride) := (source stride, target stride)
+		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
+		bytesPerPixel := target bytesPerPixel
+		(w, h) := (sourceBox size x, sourceBox size y)
+		(w2, h2) := (resultBox size x, resultBox size y)
+		a, b, c, d, x, y, index, resultValue: Int
+		x_diff, y_diff: Float
+		(x_ratio, y_ratio) := (((w) as Float)/w2, ((h) as Float)/h2)
+		offset := 0
+		for (i in startRow .. endRow) {
+			for (j in 0 .. w2) {
+				(x, y) = ((x_ratio * j), (y_ratio * i))
+				(x_diff, y_diff) = ((x_ratio * j) - x, (y_ratio * i) - y)
+				for (uvOffset in 0 .. bytesPerPixel) {
+					index = (y*w+x) * bytesPerPixel
+					a = sourceBuffer[index + uvOffset] & 0xff
+					b = sourceBuffer[index + bytesPerPixel + uvOffset] & 0xff
+					c = sourceBuffer[index + sourceStride + uvOffset] & 0xff
+					d = sourceBuffer[index + sourceStride + bytesPerPixel + uvOffset] & 0xff
+					resultValue = (a*(1-x_diff)*(1-y_diff) + b*(x_diff)*(1-y_diff) + c*(y_diff)*(1-x_diff) + d*(x_diff*y_diff)) //as Int
+					resultBuffer[offset * bytesPerPixel + uvOffset] = resultValue
+				}
+				offset += 1
 			}
 		}
 	}
-	*/
-	/*source and target width/height must be factor of 4*/
+	_blendSquare: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, sourceRow, sourceColumn, row, column: Int, weightTopLeft, weightTopRight, weightBottomLeft, weightBottomRight: Float, bytesPerPixel: Int) {
+		finalValue: Byte = 0
+		for (i in 0 .. bytesPerPixel) {
+			finalValue = weightTopLeft > 0.0f ? weightTopLeft * sourceBuffer[sourceColumn * bytesPerPixel + sourceRow * sourceStride + i] : 0
+			finalValue += weightTopRight > 0.0f ? weightTopRight * sourceBuffer[(sourceColumn + 1) * bytesPerPixel + sourceRow * sourceStride + i] : 0
+			finalValue += weightBottomLeft > 0.0f ? weightBottomLeft * sourceBuffer[sourceColumn * bytesPerPixel + (sourceRow + 1) * sourceStride + i] : 0
+			finalValue += weightBottomRight > 0.0f ? weightBottomRight * sourceBuffer[(sourceColumn + 1) * bytesPerPixel + (sourceRow + 1) * sourceStride + i] : 0
+			resultBuffer[column * bytesPerPixel + row * resultStride + i] = finalValue
+		}
+	}
 	_resizeBilinearNeon: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, row, maxRow: Int) {
-	version (neon) {
 		targetCoordinateSystemXLeftward := target coordinateSystem & CoordinateSystem XLeftward
 		targetCoordinateSystemYUpward := target coordinateSystem & CoordinateSystem YUpward
 		sourceCoordinateSystemXLeftward := source coordinateSystem & CoordinateSystem XLeftward
@@ -168,10 +182,7 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 		(neonResultStartColumn, neonResultStartRow) := (vdupq_n_s32(resultBox leftTop x), vdupq_n_s32(resultBox leftTop y))
 		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
 		neonRow := vld1q_f32([row, row + 1, row + 2, row + 3] as Float*)
-		if ((maxRow - row) % neonLength != 0)
-			Debug print("Experiment: Rows missed!")
-		if (resultWidth % neonLength != 0)
-			Debug print("Experiment: Columns missed!")
+		column := 0
 		while (row + neonLength <= maxRow) {
 			neonSourceRow := vmulq_f32(neonSourceHeight, neonRow)
 			neonSourceRow = div_f32(neonSourceRow, resultBox size y as Float)
@@ -182,7 +193,7 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			for (lane in 0 .. neonLength) {
 				vst1q_s32(sourceRowUp, neonSourceRowUp)
 				vst1q_f32(weightDown, neonWeightDown)
-				column := 0
+				column = 0
 				neonColumn := vld1q_f32([0.0f, 1.0f, 2.0f, 3.0f] as Float*)
 				while (column + neonLength <= resultWidth) {
 					neonSourceColumn := vmulq_f32(neonSourceWidth, neonColumn)
@@ -237,10 +248,13 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			row += neonLength
 			neonRow = vaddq_f32(neonRow, vdupq_n_f32(neonLength as Float))
 		}
+		if (row < maxRow)
+			This _resizeBilinear(source, target, sourceBox, resultBox, row, maxRow, 0, resultWidth)
+		if (column < resultWidth)
+			This _resizeBilinear(source, target, sourceBox, resultBox, 0, row, column, resultWidth)
 		memfree(sourceRowUp)
 		memfree(weightDown)
 		memfree(indexes)
-	}
 	}
 	/*_blendSquareNeon: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, bytesPerPixel: Int, neonSourceRow, neonSourceColumn, neonRow, neonColumn: Int32x4, neonTopLeft, neonTopRight, neonBottomLeft, neonBottomRight: Float32x4) {
 		neonLength := 4
@@ -248,16 +262,7 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 		neonBytesPerPixel := vdupq_n_s32(bytesPerPixel)
 
 	}*/
-	_blendSquare: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, sourceRow, sourceColumn, row, column: Int, weightTopLeft, weightTopRight, weightBottomLeft, weightBottomRight: Float, bytesPerPixel: Int) {
-		finalValue: Byte = 0
-		for (i in 0 .. bytesPerPixel) {
-			finalValue = weightTopLeft > 0.0f ? weightTopLeft * sourceBuffer[sourceColumn * bytesPerPixel + sourceRow * sourceStride + i] : 0
-			finalValue += weightTopRight > 0.0f ? weightTopRight * sourceBuffer[(sourceColumn + 1) * bytesPerPixel + sourceRow * sourceStride + i] : 0
-			finalValue += weightBottomLeft > 0.0f ? weightBottomLeft * sourceBuffer[sourceColumn * bytesPerPixel + (sourceRow + 1) * sourceStride + i] : 0
-			finalValue += weightBottomRight > 0.0f ? weightBottomRight * sourceBuffer[(sourceColumn + 1) * bytesPerPixel + (sourceRow + 1) * sourceStride + i] : 0
-			resultBuffer[column * bytesPerPixel + row * resultStride + i] = finalValue
-		}
-	}
+
 }
 
 RasterPacked: abstract class extends RasterImage {
