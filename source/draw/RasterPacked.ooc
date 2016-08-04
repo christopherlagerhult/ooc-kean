@@ -66,12 +66,6 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 		(resultStartColumn, resultStartRow) := (resultBox leftTop x, resultBox leftTop y)
 		(sourceStride, resultStride) := (source stride, target stride)
 		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
-		//printed := static false
-		/*if (printed == false && bytesPerPixel == 2) {
-			"source: w: #{sourceWidth}, s: #{sourceStride}" println() . free()
-			"result: w: #{resultWidth}, s: #{resultStride}" println() . free()
-			printed = true
-		}*/
 		for (row in 0 .. resultHeight) {
 			sourceRow := ((sourceHeight as Float) * row) / resultHeight + sourceStartRow
 			sourceRowUp := sourceRow floor() as Int
@@ -127,32 +121,118 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 			}
 		}
 	}
-	_resizeTest: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, startRow, endRow, startColumn, endColumn: Int) {
+	_resizeTest: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, startRow, endRow, startColumn: Int) {
 		(sourceStride, resultStride) := (source stride, target stride)
 		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
 		bytesPerPixel := target bytesPerPixel
 		(w, h) := (sourceBox size x, sourceBox size y)
 		(w2, h2) := (resultBox size x, resultBox size y)
-		a, b, c, d, x, y, index, resultValue: Int
+		a, b, c, d, x, y, preIndex, index, resultValue: Int
 		x_diff, y_diff: Float
 		(x_ratio, y_ratio) := (((w) as Float)/w2, ((h) as Float)/h2)
-		offset := 0
+		//modified to enable parallel threads and simd
+		offset := startRow * w2
 		for (i in startRow .. endRow) {
-			for (j in 0 .. w2) {
-				(x, y) = ((x_ratio * j), (y_ratio * i))
-				(x_diff, y_diff) = ((x_ratio * j) - x, (y_ratio * i) - y)
+			y = (y_ratio * i)
+			y_diff = (y_ratio * i) - y
+			for (j in startColumn .. w2) {
+				x = (x_ratio * j)
+				x_diff = (x_ratio * j) - x
+				preIndex = (y*w+x)
 				for (uvOffset in 0 .. bytesPerPixel) {
-					index = (y*w+x) * bytesPerPixel
-					a = sourceBuffer[index + uvOffset] & 0xff
-					b = sourceBuffer[index + bytesPerPixel + uvOffset] & 0xff
-					c = sourceBuffer[index + sourceStride + uvOffset] & 0xff
-					d = sourceBuffer[index + sourceStride + bytesPerPixel + uvOffset] & 0xff
+					index = preIndex * bytesPerPixel + uvOffset
+					a = sourceBuffer[index] & 0xff
+					b = sourceBuffer[index + bytesPerPixel] & 0xff
+					c = sourceBuffer[index + sourceStride] & 0xff
+					d = sourceBuffer[index + sourceStride + bytesPerPixel] & 0xff
 					resultValue = (a*(1-x_diff)*(1-y_diff) + b*(x_diff)*(1-y_diff) + c*(y_diff)*(1-x_diff) + d*(x_diff*y_diff)) //as Int
 					resultBuffer[offset * bytesPerPixel + uvOffset] = resultValue
 				}
 				offset += 1
 			}
 		}
+	}
+	_resizeTestNeonY: static func (source, target: RasterPacked, sourceBox, resultBox: IntBox2D, row, maxRow: Int) {
+		(sourceStride, resultStride) := (source stride, target stride)
+		(sourceBuffer, resultBuffer) := (source buffer pointer as Byte*, target buffer pointer as Byte*)
+		bytesPerPixel := target bytesPerPixel
+		(w, h) := (sourceBox size x, sourceBox size y)
+		(w2, h2) := (resultBox size x, resultBox size y)
+		x, y, preIndex, index, resultValue: Int32x4
+		a, b, c, d: Float32x4
+		neonLength := 4
+		storeIndex := malloc(Int size * neonLength) as Int*
+		neonY := malloc(Int size * neonLength) as Int*
+		xDiff := malloc(Int size * neonLength) as Float*
+		yDiff := malloc(Int size * neonLength) as Float*
+		x_diff, y_diff: Float32x4
+		(x_ratio, y_ratio) := (vdupq_n_f32(((w) as Float)/w2), vdupq_n_f32(((h) as Float)/h2))
+		offset := 0
+		column := 0
+		neonRow := vld1q_f32([row, row + 1, row + 2, row + 3] as Float*)
+		while (row + neonLength <= maxRow) {
+			y = vcvtq_s32_f32(vmulq_f32(y_ratio, neonRow))
+			y_diff = vsubq_f32(vmulq_f32(y_ratio, neonRow), vcvtq_f32_s32(y))
+			for (lane in 0 .. neonLength) {
+				column = 0
+				neonColumn := vld1q_f32([0.0f, 1.0f, 2.0f, 3.0f] as Float*)
+				vst1q_f32(yDiff, y_diff)
+				vst1q_s32(neonY, y)
+				while (column + neonLength <= w2) {
+					x = vcvtq_s32_f32(vmulq_f32(x_ratio, neonColumn))
+					x_diff = vsubq_f32(vmulq_f32(x_ratio, neonColumn), vcvtq_f32_s32(x))
+					preIndex = vaddq_s32(vmulq_s32(vdupq_n_s32(neonY[lane]), vdupq_n_s32(w)), x)
+					for (uvOffset in 0 .. bytesPerPixel) {
+						index = vaddq_s32(vmulq_s32(preIndex, vdupq_n_s32(bytesPerPixel)), vdupq_n_s32(uvOffset))
+						vst1q_s32(storeIndex, index)
+						vst1q_f32(xDiff, x_diff)
+						a = vld1q_f32([
+							sourceBuffer[storeIndex[0]] & 0xff,
+							sourceBuffer[storeIndex[1]] & 0xff,
+							sourceBuffer[storeIndex[2]] & 0xff,
+							sourceBuffer[storeIndex[3]] & 0xff] as Float*)
+						b = vld1q_f32([
+							sourceBuffer[storeIndex[0] + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[1] + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[2] + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[3] + bytesPerPixel] & 0xff] as Float*)
+						c = vld1q_f32([
+							sourceBuffer[storeIndex[0] + sourceStride] & 0xff,
+							sourceBuffer[storeIndex[1] + sourceStride] & 0xff,
+							sourceBuffer[storeIndex[2] + sourceStride] & 0xff,
+							sourceBuffer[storeIndex[3] + sourceStride] & 0xff] as Float*)
+						d = vld1q_f32([
+							sourceBuffer[storeIndex[0] + sourceStride + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[1] + sourceStride + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[2] + sourceStride + bytesPerPixel] & 0xff,
+							sourceBuffer[storeIndex[3] + sourceStride + bytesPerPixel] & 0xff] as Float*)
+						resultValueTemp := vmulq_f32(vmulq_f32(vsubq_f32(vdupq_n_f32(1.0f), x_diff), a), vsubq_f32(vdupq_n_f32(1.0f), vdupq_n_f32(yDiff[lane])))
+						resultValueTemp = vaddq_f32(resultValueTemp, vmulq_f32(vmulq_f32(b, x_diff), vsubq_f32(vdupq_n_f32(1.0f), vdupq_n_f32(yDiff[lane]))))
+						resultValueTemp = vaddq_f32(resultValueTemp, vmulq_f32(vmulq_f32(c, vdupq_n_f32(yDiff[lane])), vsubq_f32(vdupq_n_f32(1.0f), x_diff)))
+						resultValueTemp = vaddq_f32(resultValueTemp, vmulq_f32(d, vmulq_f32(x_diff, vdupq_n_f32(yDiff[lane]))))
+						resultValue = vcvtq_s32_f32(resultValueTemp)
+						vst1q_s32(storeIndex, resultValue)
+						resultBuffer[offset * bytesPerPixel + uvOffset] = storeIndex[0]
+						resultBuffer[(offset + 1) * bytesPerPixel + uvOffset] = storeIndex[1]
+						resultBuffer[(offset + 2) * bytesPerPixel + uvOffset] = storeIndex[2]
+						resultBuffer[(offset + 3) * bytesPerPixel + uvOffset] = storeIndex[3]
+					}
+					offset += neonLength
+					column += neonLength
+					neonColumn = vaddq_f32(neonColumn, vdupq_n_f32(neonLength as Float))
+				}
+			}
+			row += neonLength
+			neonRow = vaddq_f32(neonRow, vdupq_n_f32(neonLength as Float))
+		}
+		if (row < maxRow)
+			This _resizeTest(source, target, sourceBox, resultBox, row, maxRow, 0)
+		if (column < w2)
+			This _resizeTest(source, target, sourceBox, resultBox, 0, row, column)
+		memfree(storeIndex)
+		memfree(neonY)
+		memfree(yDiff)
+		memfree(xDiff)
 	}
 	_blendSquare: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, sourceRow, sourceColumn, row, column: Int, weightTopLeft, weightTopRight, weightBottomLeft, weightBottomRight: Float, bytesPerPixel: Int) {
 		finalValue: Byte = 0
@@ -256,13 +336,6 @@ RasterPackedCanvas: abstract class extends RasterCanvas {
 		memfree(weightDown)
 		memfree(indexes)
 	}
-	/*_blendSquareNeon: static func (sourceBuffer, resultBuffer: Byte*, sourceStride, resultStride, bytesPerPixel: Int, neonSourceRow, neonSourceColumn, neonRow, neonColumn: Int32x4, neonTopLeft, neonTopRight, neonBottomLeft, neonBottomRight: Float32x4) {
-		neonLength := 4
-
-		neonBytesPerPixel := vdupq_n_s32(bytesPerPixel)
-
-	}*/
-
 }
 
 RasterPacked: abstract class extends RasterImage {

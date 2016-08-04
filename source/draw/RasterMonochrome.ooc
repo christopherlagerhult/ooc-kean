@@ -49,9 +49,11 @@ RasterMonochromeCanvas: class extends RasterPackedCanvas {
 		else
 			Debug error("Unsupported image type in RasterMonochromeCanvas draw")
 		version (neon)
-			This _resizeBilinearNeon(monochrome, this target, source, destination, fromRow, toRow)
-		else
-			This _resizeBilinear(monochrome, this target, source, destination, fromRow, toRow, 0, destination size x)
+			This _resizeTestNeonY(monochrome, this target, source, destination, fromRow, toRow)
+			//This _resizeBilinearNeon(monochrome, this target, source, destination, fromRow, toRow)
+		else {
+			This _resizeTest(monochrome, this target, source, destination, fromRow, toRow, 0)
+		}
 		if (monochrome != image)
 			monochrome referenceCount decrease()
 	}

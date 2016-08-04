@@ -48,10 +48,12 @@ RasterUvCanvas: class extends RasterPackedCanvas {
 			uv = RasterUv convertFrom(image as RasterImage)
 		else
 			Debug error("Unsupported image type in RasterUvCanvas draw")
-		version (neon)
-			This _resizeBilinearNeon(uv, this target, source, destination, fromRow, toRow)
+		version (neon) {
+			//This _resizeBilinearNeon(uv, this target, source, destination, fromRow, toRow)
+			This _resizeTestNeonY(uv, this target, source, destination, fromRow, toRow)
+		}
 		else
-			This _resizeBilinear(uv, this target, source, destination, fromRow, toRow, 0, destination size x)
+			This _resizeTest(uv, this target, source, destination, fromRow, toRow, 0)
 		if (uv != image)
 			uv referenceCount decrease()
 	}
