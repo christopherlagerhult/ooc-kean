@@ -84,7 +84,8 @@ AndroidContext: class extends OpenGLContext {
 		}
 	}
 	toRaster: override func ~target (source: GpuImage, target: RasterImage) -> Promise {
-		result: Promise
+		Debug print("source #{source class name}, target #{target class name}")
+		result: Promise = null
 		if (target instanceOf(GraphicBufferYuv420Semiplanar) && source instanceOf(GpuYuv420Semiplanar)) {
 			targetImage := target as GraphicBufferYuv420Semiplanar
 			sourceImage := source as GpuYuv420Semiplanar

@@ -22,5 +22,6 @@ Imports: EGLRgba
 Imports: EGLYuv
 Imports: GraphicBuffer
 Imports: GraphicBufferYuv420Semiplanar
+Imports: backend/gles3/Gles3Context
 version (linux || apple || android)
 	Libs: -lEGL

@@ -110,6 +110,7 @@ OpenGLContext: class extends GpuContext {
 			result = OpenGLNativeFencePromise new(this)
 		else
 			result = OpenGLPromise new(this)
+		Debug print("creating fence" & result class name & "on thread " & Thread currentThreadId())
 		result sync()
 		result
 	}

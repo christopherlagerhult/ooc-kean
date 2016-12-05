@@ -7,6 +7,7 @@
  */
 
 use base
+use concurrent
 import egl/egl
 import GLExtensions, GLFence, gles3/Gles3Debug
 
@@ -16,7 +17,7 @@ EGLNativeFence: class extends GLFence {
 	init: func (=_display) { super() }
 	free: override func {
 		version(debugGL) { validateStart("EGLNativeFence eglDestroySyncKHR") }
-		GLExtensions eglDestroySyncKHR(this _display, this _backend)
+		result := GLExtensions eglDestroySyncKHR(this _display, this _backend)
 		version(debugGL) { validateEnd("EGLNativeFence eglDestroySyncKHR") }
 		super()
 	}
@@ -27,7 +28,8 @@ EGLNativeFence: class extends GLFence {
 	}
 	clientWait: override func (timeout: ULong = ULong maximumValue) -> Bool {
 		version(debugGL) { validateStart("EGLNativeFence eglClientWaitSyncKHR") }
-		result := GLExtensions eglClientWaitSyncKHR(this _display, this _backend, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, timeout)
+		result := GLExtensions eglClientWaitSyncKHR(this _display, this _backend, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, EGL_FOREVER_KHR)
+		Debug print("Waited for " & this class name & "with display " & this _display as Int & " on thread " & Thread currentThreadId() & "-> " & result as Int)
 		version(debugGL) { validateEnd("EGLNativeFence eglClientWaitSyncKHR") }
 		result
 	}
