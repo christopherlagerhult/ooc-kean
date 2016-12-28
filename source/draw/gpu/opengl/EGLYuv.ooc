@@ -8,6 +8,7 @@
 
 use geometry
 use draw
+use opengl
 use base
 use concurrent
 import GraphicBuffer, OpenGLContext, OpenGLPacked
@@ -27,6 +28,19 @@ EGLYuv: class extends OpenGLPacked {
 		// Blending is not supported for this image type, so we force it off
 		drawState blendMode = BlendMode Fill
 		super(drawState)
+	}
+	copy: override func -> This {
+		Debug print("Debug -> copy EGLYuv")
+		/*
+		NativeYuvApplier Overrides RenderTaskApplier::modify in order to only duplicate nativeYUV images w/ Singlebuffer (compare input/output handles)
+		Create a copy function from wrppaer that copies the GraphicBuffer
+		Modify contructor in EGLYuv to have a refernce to GraphicBufferYuv420SemiPlanar in order to reach buffer size and stride and stuff. (in copy of buffer happens inside here. Leave this if it's
+		possible to copy graphivbuffer data from wrapper)
+		*/
+	}
+	operator == (other: This) -> Bool {
+		Debug print("Debug -> EGLYuv compare")
+		this _handle == other _handle
 	}
 	drawLines: override func (pointList: VectorList<FloatPoint2D>, pen: Pen) {
 		yuv := pen color toYuv()
